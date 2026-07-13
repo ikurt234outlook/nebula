@@ -1,0 +1,80 @@
+name: Build Windows package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.85'
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $ver = $env:GITHUB_REF_NAME
+          } else {
+            $ver = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
+          }
+          $dir = "NebulaTerminal-$ver-windows-x64"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+          Copy-Item target/release/nebula.exe $dir/
+          if (Test-Path target/release/nebula-hook.exe) {
+            Copy-Item target/release/nebula-hook.exe $dir/
+          } else {
+            Write-Host '::warning::nebula-hook.exe not found; package will omit it'
+          }
+
+          $font = 'assets/fonts/MapleMonoNormal-NF-CN-Regular.ttf'
+          if (Test-Path $font) {
+            Copy-Item $font $dir/
+          } else {
+            Write-Host "::warning::font missing: $font"
+          }
+
+          if (Test-Path 'assets/windows/conhost') {
+            Copy-Item assets/windows/conhost/* $dir/ -ErrorAction SilentlyContinue
+          } else {
+            Write-Host '::warning::assets/windows/conhost missing; package uses in-box ConPTY fallback'
+          }
+
+          Get-ChildItem $dir | Format-Table Name, Length
+          Compress-Archive -Path $dir -DestinationPath "$dir.zip" -Force
+          $hash = (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash
+          Write-Host "PACKAGE=$dir.zip"
+          Write-Host "SHA256=$hash"
+          "PACKAGE_ZIP=$dir.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-windows-x64
+          path: NebulaTerminal-*-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NebulaTerminal-*-windows-x64.zip
+          generate_release_notes: true
