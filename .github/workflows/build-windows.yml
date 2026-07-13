@@ -27,17 +27,19 @@ jobs:
           git log -1 --oneline
           Get-ChildItem
 
-      - name: Install Rust 1.85
+      # MSRV is 1.85, but transitive deps (e.g. pageant) need newer rustc
+      # for let-chains; install current stable on the runner.
+      - name: Install Rust stable
         working-directory: work
         run: |
           $ErrorActionPreference = 'Stop'
           $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
           if (-not (Test-Path (Join-Path $cargoBin 'cargo.exe'))) {
             Invoke-WebRequest https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
-            ./rustup-init.exe -y --default-toolchain 1.85.0 --profile minimal
+            ./rustup-init.exe -y --default-toolchain stable --profile minimal
           } else {
-            & "$cargoBin\rustup.exe" toolchain install 1.85.0 --profile minimal
-            & "$cargoBin\rustup.exe" default 1.85.0
+            & "$cargoBin\rustup.exe" toolchain install stable --profile minimal
+            & "$cargoBin\rustup.exe" default stable
           }
           Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
           & "$cargoBin\rustc.exe" --version
